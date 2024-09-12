@@ -17,6 +17,7 @@ import (
 type DaemonUnixSockListener struct {
 	activeConnections int32
 	lastTimeAlive     time.Time
+	keepAlive         time.Duration
 	netListener       net.Listener
 }
 
@@ -31,10 +32,11 @@ type DaemonSockResponse struct {
 	Stderr   []byte
 }
 
-func MakeDaemonRpcListener() *DaemonUnixSockListener {
+func MakeDaemonRpcListener(keepAlive time.Duration) *DaemonUnixSockListener {
 	return &DaemonUnixSockListener{
 		activeConnections: 0,
 		lastTimeAlive:     time.Now(),
+		keepAlive:         keepAlive,
 	}
 }
 
@@ -70,7 +72,7 @@ func (listener *DaemonUnixSockListener) EnterInfiniteLoopUntilQuit(daemon *Daemo
 
 		case <-time.After(5 * time.Second):
 			nActive := atomic.LoadInt32(&listener.activeConnections)
-			if nActive == 0 && time.Since(listener.lastTimeAlive).Seconds() > 15 {
+			if nActive == 0 && time.Since(listener.lastTimeAlive) > listener.keepAlive {
 				daemon.QuitDaemonGracefully("no connections receiving anymore")
 			}
 		}
@@ -85,7 +87,7 @@ func (listener *DaemonUnixSockListener) EnterInfiniteLoopUntilQuit(daemon *Daemo
 // "{ExitCode}\0{Stdout}\0{Stderr}\0"
 // See nocc.cpp, write_request_to_go_daemon() and read_response_from_go_daemon()
 func (listener *DaemonUnixSockListener) onRequest(conn net.Conn, daemon *Daemon) {
-	slice, err := bufio.NewReader(conn).ReadSlice(0)
+	slice, err := bufio.NewReader(conn).ReadBytes(0)
 	if err != nil {
 		if err != io.EOF { // if launched `nocc start {cxx_name}`, and the daemon was already running — nothing is sent actually
 			logClient.Error("couldn't read from socket", err)
@@ -103,6 +105,8 @@ func (listener *DaemonUnixSockListener) onRequest(conn net.Conn, daemon *Daemon)
 		Cwd:     reqParts[0],
 		CmdLine: reqParts[1:],
 	}
+
+	logClient.Info(3, "received request", request)
 
 	atomic.AddInt32(&listener.activeConnections, 1)
 	response := daemon.HandleInvocation(request)

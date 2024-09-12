@@ -144,6 +144,8 @@ func receiveObjFileByChunks(stream pb.CompilationService_RecvCompiledObjStreamCl
 	receivedBytes := len(firstChunk.ChunkBody)
 	expectedBytes := int(firstChunk.FileSize)
 
+	logClient.Info(3, "session", firstChunk.SessionID, "receiving file", objOutFile, " bytes:", receivedBytes, "/", expectedBytes)
+
 	var errWrite error
 	var errRecv error
 
@@ -155,7 +157,13 @@ func receiveObjFileByChunks(stream pb.CompilationService_RecvCompiledObjStreamCl
 
 	fileTmp, errWrite := common.OpenTempFile(objOutFile)
 	if errWrite == nil {
+		logClient.Info(2, "session", firstChunk.SessionID, "saving to temp file", fileTmp.Name())
 		_, errWrite = fileTmp.Write(firstChunk.ChunkBody)
+		if errWrite != nil {
+			logClient.Error("session", firstChunk.SessionID, "failed to write to temp file", "err", errWrite)
+		}
+	} else {
+		logClient.Error("session", firstChunk.SessionID, "can't create temp file", "err", errWrite)
 	}
 
 	var nextChunk *pb.RecvCompiledObjChunkReply
@@ -166,20 +174,35 @@ func receiveObjFileByChunks(stream pb.CompilationService_RecvCompiledObjStreamCl
 		}
 		if errWrite == nil {
 			_, errWrite = fileTmp.Write(nextChunk.ChunkBody)
+			if errWrite != nil {
+				logClient.Error("session", firstChunk.SessionID, "failed to write to temp file", "err", errWrite)
+			}
 		}
 		if nextChunk.SessionID != firstChunk.SessionID {
 			errRecv = fmt.Errorf("inconsistent stream, chunks mismatch")
 			break
 		}
 		receivedBytes += len(nextChunk.ChunkBody)
+		logClient.Info(2, "session", firstChunk.SessionID, "receiving file", objOutFile, " bytes:", receivedBytes, "/", expectedBytes)
 	}
 
 	if fileTmp != nil {
 		_ = fileTmp.Close()
 		if errWrite == nil {
+			logClient.Info(2, "renaming temp file", fileTmp.Name(), "to", objOutFile)
 			errWrite = os.Rename(fileTmp.Name(), objOutFile)
+			if errWrite != nil {
+				logClient.Error("failed to rename temp file", "from", fileTmp.Name(), "to", objOutFile, "err", errWrite)
+			}
 		}
 		_ = os.Remove(fileTmp.Name())
+	}
+
+	if errRecv != nil {
+		logClient.Error("error receiving obj file", "session", firstChunk.SessionID, "err", errRecv)
+	}
+	if errWrite != nil {
+		logClient.Error("error writing obj file", "session", firstChunk.SessionID, "err", errWrite)
 	}
 
 	switch {

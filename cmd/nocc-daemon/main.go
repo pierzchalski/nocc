@@ -6,6 +6,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/VKCOM/nocc/internal/client"
 	"github.com/VKCOM/nocc/internal/common"
@@ -75,6 +76,7 @@ func main() {
 		"", "NOCC_DISABLE_OWN_INCLUDES")
 	localCxxQueueSize := common.CmdEnvInt("Amount of parallel processes when remotes aren't available and cxx is launched locally.\nBy default, it's a number of CPUs on the current machine.", int64(runtime.NumCPU()),
 		"", "NOCC_LOCAL_CXX_QUEUE_SIZE")
+	keepAliveSeconds := common.CmdEnvInt("Daemon keep-alive duration in seconds.\nDaemon will exit if it receives no connections for this time.", 15, "", "NOCC_KEEP_ALIVE_SECONDS")
 
 	common.ParseCmdFlagsCombiningWithEnv()
 
@@ -128,7 +130,7 @@ func main() {
 			failedStartDaemon(err)
 		}
 
-		daemon, err := client.MakeDaemon(remoteNoccHosts, *disableObjCache, *disableOwnIncludes, *localCxxQueueSize)
+		daemon, err := client.MakeDaemon(remoteNoccHosts, *disableObjCache, *disableOwnIncludes, *localCxxQueueSize, time.Duration(*keepAliveSeconds)*time.Second)
 		if err != nil {
 			failedStartDaemon(err)
 		}

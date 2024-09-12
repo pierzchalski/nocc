@@ -120,7 +120,7 @@ func ParseCmdLineInvocation(daemon *Daemon, cwd string, cmdLine []string) (invoc
 		}
 		if arg[0] == '-' {
 			if oFile, ok := parseArgFile("-o", arg, &i); ok {
-				invocation.objOutFile = oFile
+				invocation.objOutFile = pathAbs(cwd, oFile)
 				continue
 			} else if dir, ok := parseArgFile("-I", arg, &i); ok {
 				invocation.cxxIDirs.dirsI = append(invocation.cxxIDirs.dirsI, pathAbs(cwd, dir))
@@ -222,14 +222,27 @@ func ParseCmdLineInvocation(daemon *Daemon, cwd string, cmdLine []string) (invoc
 func (invocation *Invocation) CollectDependentIncludes(cwd string, disableOwnIncludes bool) (hFiles []*IncludedFile, cppFile IncludedFile, err error) {
 	cppInFileAbs := invocation.GetCppInFileAbs(cwd)
 
+	useCxxM := func() {
+		hFiles, cppFile, err = CollectDependentIncludesByCxxM(invocation.includesCache, cwd, invocation.cxxName, cppInFileAbs, invocation.cxxArgs, invocation.cxxIDirs)
+	}
+
 	if disableOwnIncludes {
-		return CollectDependentIncludesByCxxM(invocation.includesCache, cwd, invocation.cxxName, cppInFileAbs, invocation.cxxArgs, invocation.cxxIDirs)
+		useCxxM()
+		return
 	}
 
 	includeDirs := invocation.cxxIDirs
 	includeDirs.MergeWith(invocation.includesCache.cxxDefIDirs)
 
-	return CollectDependentIncludesByOwnParser(invocation.includesCache, cppInFileAbs, includeDirs)
+	hFiles, cppFile, err = CollectDependentIncludesByOwnParser(invocation.includesCache, cppInFileAbs, includeDirs)
+
+	if err != nil {
+		logClient.Info(1, "own includes parser failed, trying native compiler", "sessionID", invocation.sessionID, "remoteHost", invocation.summary.remoteHost, invocation.cppInFile, err)
+		useCxxM()
+		return
+	}
+
+	return
 }
 
 // GetCppInFileAbs returns an absolute path to invocation.cppInFile.
@@ -244,7 +257,7 @@ func (invocation *Invocation) GetCppInFileAbs(cwd string) string {
 func (invocation *Invocation) DoneRecvObj(err error) {
 	if atomic.SwapInt32(&invocation.doneRecv, 1) == 0 {
 		if err != nil {
-			invocation.err = err
+			invocation.err = fmt.Errorf("recv obj: %v", err)
 		}
 		invocation.wgRecv.Done()
 	}
@@ -252,7 +265,7 @@ func (invocation *Invocation) DoneRecvObj(err error) {
 
 func (invocation *Invocation) DoneUploadFile(err error) {
 	if err != nil {
-		invocation.err = err
+		invocation.err = fmt.Errorf("upload file: %v", err)
 	}
 	atomic.AddInt32(&invocation.waitUploads, -1)
 	invocation.wgUpload.Done() // will end up after all required files uploaded/failed

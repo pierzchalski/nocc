@@ -2,10 +2,13 @@ package client
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"strings"
+	"syscall"
 
 	"github.com/VKCOM/nocc/internal/common"
 )
@@ -138,7 +141,7 @@ func (inc *ownIncludesParser) onHashInclude(currentFileName string, includedArg 
 		}
 		if cachedItem == nil {
 			file, err = os.Open(hFileName)
-			if err != nil && !os.IsNotExist(err) {
+			if err != nil && !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, syscall.ENOTDIR) {
 				logClient.Error("error opening", hFileName, err)
 			}
 			fileExists = err == nil
@@ -247,7 +250,7 @@ func (inc *ownIncludesParser) resolveIncludedArg(currentFileName string, include
 
 // collectIncludeStatementsInFile finds all #include "arg" in a file, in order of appearance
 // C and C++ style comments are respected, includes aren't found within them
-func (inc *ownIncludesParser) collectIncludeStatementsInFile(buffer []byte) (includes []*ownIncludedArg) {
+func (inc *ownIncludesParser) collectIncludeStatementsInFile(buffer []byte) (includes []*ownIncludedArg, err error) {
 	const (
 		stateNone = iota
 		stateAfterHash
@@ -336,8 +339,11 @@ Loop:
 			case '"':
 				start = offset + 1
 				state = stateInsideQuoteBrackets
-			default:
+			case '\n':
 				state = stateNone // buggy code
+			default:
+				err = fmt.Errorf("unsupported preprocessor #include starting at offset %d", offset)
+				return
 			}
 
 		case stateInsideAngleBrackets:
@@ -374,7 +380,12 @@ func (inc *ownIncludesParser) processHFile(hFile *IncludedFile, file *os.File, s
 	}
 
 	hFile.fileSHA256 = fileSHA256
-	includeStatements := inc.collectIncludeStatementsInFile(buffer)
+	includeStatements, err := inc.collectIncludeStatementsInFile(buffer)
+
+	if err != nil {
+		inc.err = err
+		return
+	}
 
 	if !shouldCache {
 		for _, includedArg := range includeStatements {
@@ -409,7 +420,12 @@ func (inc *ownIncludesParser) processCppInFile(cppInFile string, searchForPch bo
 		return IncludedFile{}, err
 	}
 	cppFile := IncludedFile{cppInFile, int64(len(buffer)), fileSHA256}
-	includes := inc.collectIncludeStatementsInFile(buffer)
+	includes, err := inc.collectIncludeStatementsInFile(buffer)
+
+	if err != nil {
+		inc.err = err
+		return cppFile, err
+	}
 
 	for idx, includedArg := range includes {
 		// according to .gch search rules, an #include can be replaced with a precompiled header

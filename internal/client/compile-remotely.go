@@ -16,7 +16,7 @@ func CompileCppRemotely(daemon *Daemon, cwd string, invocation *Invocation, remo
 	// 1. For an input .cpp file, find all dependent .h/.nocc-pch/etc. that are required for compilation
 	hFiles, cppFile, err := invocation.CollectDependentIncludes(cwd, daemon.disableOwnIncludes)
 	if err != nil {
-		return 0, nil, nil, fmt.Errorf("failed to collect depencies: %v", err)
+		return 0, nil, nil, fmt.Errorf("failed to collect dependencies: %v", err)
 	}
 	invocation.summary.nIncludes = len(hFiles)
 	invocation.summary.AddTiming("collected_includes")
@@ -49,7 +49,7 @@ func CompileCppRemotely(daemon *Daemon, cwd string, invocation *Invocation, remo
 	// The remote returns indexes that are missing (needed to be uploaded).
 	fileIndexesToUpload, err := remote.StartCompilationSession(invocation, cwd, requiredFiles)
 	if err != nil {
-		return 0, nil, nil, err
+		return 0, nil, nil, fmt.Errorf("failed to start compilation session: %v", err)
 	}
 
 	logClient.Info(1, "remote", remote.remoteHost, "sessionID", invocation.sessionID, "waiting", len(fileIndexesToUpload), "uploads", invocation.cppInFile)
@@ -60,15 +60,19 @@ func CompileCppRemotely(daemon *Daemon, cwd string, invocation *Invocation, remo
 	// If all files were recently uploaded or exist in remote cache, this array would be empty.
 	err = remote.UploadFilesToRemote(invocation, requiredFiles, fileIndexesToUpload)
 	if err != nil {
-		return 0, nil, nil, err
+		return 0, nil, nil, fmt.Errorf("failed to upload files to remote: %v", err)
 	}
 	invocation.summary.AddTiming("uploaded_files")
 
 	// 4. After the remote received all required files, it started compiling .cpp to .o.
 	// Here we send a request for this .o, it will wait for .o ready, download and save it.
 	logClient.Info(2, "wait for a compiled obj", "sessionID", invocation.sessionID)
+
+	logClient.Info(2, "sessionID", invocation.sessionID, "waiting for compiled obj", invocation.cppInFile, "to copy to", invocation.objOutFile)
+
 	exitCode, stdout, stderr, err = remote.WaitForCompiledObj(invocation)
 	if err != nil {
+		err = fmt.Errorf("failed to wait for compiled obj: %v", err)
 		return
 	}
 	invocation.summary.AddTiming("received_obj")

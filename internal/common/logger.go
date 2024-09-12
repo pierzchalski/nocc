@@ -28,7 +28,7 @@ func MakeLogger(logFile string, verbosity int64, noLogsIfEmpty bool, duplicateTo
 		impl = log.New(os.Stderr, "", 0)
 	}
 
-	if verbosity < -1 || verbosity > 2 {
+	if verbosity < -1 || verbosity > 3 {
 		return nil, errors.New("incorrect verbosity passed")
 	}
 

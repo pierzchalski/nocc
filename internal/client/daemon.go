@@ -31,6 +31,7 @@ const (
 type Daemon struct {
 	startTime time.Time
 	quitChan  chan int
+	keepAlive time.Duration
 
 	clientID     string
 	hostUserName string
@@ -78,7 +79,7 @@ func detectHostUserName() string {
 	return curUser.Username
 }
 
-func MakeDaemon(remoteNoccHosts []string, disableObjCache bool, disableOwnIncludes bool, maxLocalCxxProcesses int64) (*Daemon, error) {
+func MakeDaemon(remoteNoccHosts []string, disableObjCache bool, disableOwnIncludes bool, maxLocalCxxProcesses int64, keepAlive time.Duration) (*Daemon, error) {
 	// send env NOCC_SERVERS on connect everywhere
 	// this is for debugging purpose: in production, all clients should have the same servers list
 	// to ensure this, just grep server logs: only one unique string should appear
@@ -95,6 +96,7 @@ func MakeDaemon(remoteNoccHosts []string, disableObjCache bool, disableOwnInclud
 	daemon := &Daemon{
 		startTime:          time.Now(),
 		quitChan:           make(chan int),
+		keepAlive:          keepAlive,
 		clientID:           detectClientID(),
 		hostUserName:       detectHostUserName(),
 		remoteConnections:  make([]*RemoteConnection, len(remoteNoccHosts)),
@@ -132,7 +134,7 @@ func MakeDaemon(remoteNoccHosts []string, disableObjCache bool, disableOwnInclud
 }
 
 func (daemon *Daemon) StartListeningUnixSocket(daemonUnixSock string) error {
-	daemon.listener = MakeDaemonRpcListener()
+	daemon.listener = MakeDaemonRpcListener(daemon.keepAlive)
 	return daemon.listener.StartListeningUnixSocket(daemonUnixSock)
 }
 
@@ -179,6 +181,8 @@ func (daemon *Daemon) OnRemoteBecameUnavailable(remoteHostPost string, reason er
 
 func (daemon *Daemon) HandleInvocation(req DaemonSockRequest) DaemonSockResponse {
 	invocation := ParseCmdLineInvocation(daemon, req.Cwd, req.CmdLine)
+
+	logClient.Info(3, "parsed invocation", invocation)
 
 	switch invocation.invokeType {
 	default:
@@ -256,7 +260,7 @@ func (daemon *Daemon) HandleInvocation(req DaemonSockRequest) DaemonSockResponse
 
 func (daemon *Daemon) FallbackToLocalCxx(req DaemonSockRequest, reason error) DaemonSockResponse {
 	if reason != nil {
-		logClient.Error("compiling locally:", reason)
+		logClient.Error("compiling locally because:", reason)
 	}
 
 	var reply DaemonSockResponse
