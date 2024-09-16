@@ -182,8 +182,6 @@ func (daemon *Daemon) OnRemoteBecameUnavailable(remoteHostPost string, reason er
 func (daemon *Daemon) HandleInvocation(req DaemonSockRequest) DaemonSockResponse {
 	invocation := ParseCmdLineInvocation(daemon, req.Cwd, req.CmdLine)
 
-	logClient.Info(3, "parsed invocation", invocation)
-
 	switch invocation.invokeType {
 	default:
 		return daemon.FallbackToLocalCxx(req, errors.New("unexpected invokeType after parsing"))
@@ -260,7 +258,7 @@ func (daemon *Daemon) HandleInvocation(req DaemonSockRequest) DaemonSockResponse
 
 func (daemon *Daemon) FallbackToLocalCxx(req DaemonSockRequest, reason error) DaemonSockResponse {
 	if reason != nil {
-		logClient.Error("compiling locally because:", reason)
+		logClient.Error("compiling locally:", reason)
 	}
 
 	var reply DaemonSockResponse

@@ -106,8 +106,6 @@ func (listener *DaemonUnixSockListener) onRequest(conn net.Conn, daemon *Daemon)
 		CmdLine: reqParts[1:],
 	}
 
-	logClient.Info(3, "received request", request)
-
 	atomic.AddInt32(&listener.activeConnections, 1)
 	response := daemon.HandleInvocation(request)
 	atomic.AddInt32(&listener.activeConnections, -1)

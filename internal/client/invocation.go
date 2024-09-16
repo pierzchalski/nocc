@@ -257,7 +257,7 @@ func (invocation *Invocation) GetCppInFileAbs(cwd string) string {
 func (invocation *Invocation) DoneRecvObj(err error) {
 	if atomic.SwapInt32(&invocation.doneRecv, 1) == 0 {
 		if err != nil {
-			invocation.err = fmt.Errorf("recv obj: %v", err)
+			invocation.err = err
 		}
 		invocation.wgRecv.Done()
 	}
@@ -265,7 +265,7 @@ func (invocation *Invocation) DoneRecvObj(err error) {
 
 func (invocation *Invocation) DoneUploadFile(err error) {
 	if err != nil {
-		invocation.err = fmt.Errorf("upload file: %v", err)
+		invocation.err = err
 	}
 	atomic.AddInt32(&invocation.waitUploads, -1)
 	invocation.wgUpload.Done() // will end up after all required files uploaded/failed
